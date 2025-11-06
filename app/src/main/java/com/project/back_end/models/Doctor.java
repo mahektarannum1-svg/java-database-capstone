@@ -7,8 +7,9 @@ import java.util.List;
 
 /**
  * The Doctor class represents healthcare providers in the Clinic Management System.
- * It includes personal details, medical specialization, and availability for appointments.
- * This entity is crucial for mapping with appointments and managing doctor data securely.
+ * It includes personal details, medical specialization, years of experience, clinic information,
+ * and availability for appointments. This entity is crucial for mapping with appointments
+ * and managing doctor data securely.
  */
 
 @Entity // Marks this class as a JPA entity (represents a database table)
@@ -42,7 +43,33 @@ public class Doctor {
     @Size(min = 3, max = 50, message = "Specialty must be between 3 and 50 characters")
     private String specialty;
 
-    // 4️⃣ EMAIL FIELD
+    // 4️⃣ YEARS OF EXPERIENCE FIELD
+    /**
+     * Number of years the doctor has been practicing.
+     * Must be a non-negative integer.
+     */
+    @Min(value = 0, message = "Years of experience must be non-negative")
+    private int yearsOfExperience;
+
+    // 5️⃣ CLINIC ADDRESS FIELD
+    /**
+     * The address of the clinic or hospital where the doctor practices.
+     * Can include street, city, and state details.
+     */
+    @NotNull(message = "Clinic address cannot be null")
+    @Size(min = 5, max = 200, message = "Clinic address must be between 5 and 200 characters")
+    private String clinicAddress;
+
+    // 6️⃣ RATING FIELD
+    /**
+     * Average patient rating for the doctor (on a scale of 1.0 to 5.0).
+     * Can be updated based on patient feedback.
+     */
+    @DecimalMin(value = "1.0", message = "Rating must be at least 1.0")
+    @DecimalMax(value = "5.0", message = "Rating cannot exceed 5.0")
+    private Double rating;
+
+    // 7️⃣ EMAIL FIELD
     /**
      * Doctor's email address.
      * Must be a valid email format and cannot be null.
@@ -51,7 +78,7 @@ public class Doctor {
     @Email(message = "Invalid email format")
     private String email;
 
-    // 5️⃣ PASSWORD FIELD
+    // 8️⃣ PASSWORD FIELD
     /**
      * Doctor's password for authentication.
      * Must be at least 6 characters long.
@@ -62,7 +89,7 @@ public class Doctor {
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY) // Prevents password exposure in API responses
     private String password;
 
-    // 6️⃣ PHONE FIELD
+    // 9️⃣ PHONE FIELD
     /**
      * Doctor's contact number.
      * Must contain exactly 10 digits.
@@ -71,7 +98,7 @@ public class Doctor {
     @Pattern(regexp = "\\d{10}", message = "Phone number must be 10 digits")
     private String phone;
 
-    // 7️⃣ AVAILABLE TIMES FIELD
+    // 🔟 AVAILABLE TIMES FIELD
     /**
      * List of time slots when the doctor is available.
      * Example: ["09:00-10:00", "10:00-11:00"]
@@ -86,10 +113,14 @@ public class Doctor {
     public Doctor() {}
 
     /** Parameterized constructor for creating Doctor objects easily. */
-    public Doctor(Long id, String name, String specialty, String email, String password, String phone, List<String> availableTimes) {
+    public Doctor(Long id, String name, String specialty, int yearsOfExperience, String clinicAddress,
+                  Double rating, String email, String password, String phone, List<String> availableTimes) {
         this.id = id;
         this.name = name;
         this.specialty = specialty;
+        this.yearsOfExperience = yearsOfExperience;
+        this.clinicAddress = clinicAddress;
+        this.rating = rating;
         this.email = email;
         this.password = password;
         this.phone = phone;
@@ -120,6 +151,30 @@ public class Doctor {
 
     public void setSpecialty(String specialty) {
         this.specialty = specialty;
+    }
+
+    public int getYearsOfExperience() {
+        return yearsOfExperience;
+    }
+
+    public void setYearsOfExperience(int yearsOfExperience) {
+        this.yearsOfExperience = yearsOfExperience;
+    }
+
+    public String getClinicAddress() {
+        return clinicAddress;
+    }
+
+    public void setClinicAddress(String clinicAddress) {
+        this.clinicAddress = clinicAddress;
+    }
+
+    public Double getRating() {
+        return rating;
+    }
+
+    public void setRating(Double rating) {
+        this.rating = rating;
     }
 
     public String getEmail() {

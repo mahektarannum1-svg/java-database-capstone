@@ -3,13 +3,14 @@ package com.project.back_end.models;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 
 /**
  * The Appointment class represents a scheduled meeting between a Doctor and a Patient.
- * It stores details such as appointment time, status, and links to Doctor and Patient entities.
+ * It stores details such as appointment time, reason for visit, notes, and links to Doctor and Patient entities.
  * This is one of the core models of the Clinic Management System.
  */
 
@@ -54,9 +55,25 @@ public class Appointment {
     private LocalDateTime appointmentTime;
 
     /**
+     * Reason for the visit (e.g., "Regular Checkup", "Fever", "Consultation").
+     * Helps doctors prepare in advance.
+     */
+    @NotNull(message = "Reason for visit cannot be null")
+    @Size(min = 3, max = 100, message = "Reason for visit must be between 3 and 100 characters")
+    private String reasonForVisit;
+
+    /**
+     * Additional notes related to the appointment (e.g., patient’s symptoms or doctor’s comments).
+     * Optional field for extra context.
+     */
+    @Column(length = 500)
+    private String notes;
+
+    /**
      * Status of the appointment.
      * 0 = Scheduled
      * 1 = Completed
+     * 2 = Cancelled
      */
     @NotNull(message = "Status cannot be null")
     private int status;
@@ -67,11 +84,14 @@ public class Appointment {
     public Appointment() {}
 
     /** Parameterized constructor for easy object creation. */
-    public Appointment(Long id, Doctor doctor, Patient patient, LocalDateTime appointmentTime, int status) {
+    public Appointment(Long id, Doctor doctor, Patient patient, LocalDateTime appointmentTime,
+                       String reasonForVisit, String notes, int status) {
         this.id = id;
         this.doctor = doctor;
         this.patient = patient;
         this.appointmentTime = appointmentTime;
+        this.reasonForVisit = reasonForVisit;
+        this.notes = notes;
         this.status = status;
     }
 
@@ -137,6 +157,22 @@ public class Appointment {
 
     public void setAppointmentTime(LocalDateTime appointmentTime) {
         this.appointmentTime = appointmentTime;
+    }
+
+    public String getReasonForVisit() {
+        return reasonForVisit;
+    }
+
+    public void setReasonForVisit(String reasonForVisit) {
+        this.reasonForVisit = reasonForVisit;
+    }
+
+    public String getNotes() {
+        return notes;
+    }
+
+    public void setNotes(String notes) {
+        this.notes = notes;
     }
 
     public int getStatus() {

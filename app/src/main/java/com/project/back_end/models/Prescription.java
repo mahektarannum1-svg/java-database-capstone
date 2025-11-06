@@ -4,12 +4,13 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Min;
 
 /**
  * The Prescription class represents a MongoDB document that stores 
  * details of prescriptions given to patients during appointments.
  * It includes patient details, appointment reference, prescribed medication, 
- * dosage, and optional doctor notes.
+ * dosage, pharmacy information, and optional doctor notes.
  */
 
 @Document(collection = "prescriptions") // Maps this class to the 'prescriptions' collection in MongoDB
@@ -59,6 +60,20 @@ public class Prescription {
     @Size(max = 200, message = "Doctor notes cannot exceed 200 characters")
     private String doctorNotes;
 
+    /**
+     * Number of refills allowed for this prescription.
+     * Defaults to 0 if no refills are permitted.
+     */
+    @Min(value = 0, message = "Refill count cannot be negative")
+    private int refillCount;
+
+    /**
+     * Name of the pharmacy where the prescription can be filled.
+     * Optional but useful for tracking.
+     */
+    @Size(max = 100, message = "Pharmacy name cannot exceed 100 characters")
+    private String pharmacyName;
+
     // -------------------- Constructors --------------------
 
     /** Default constructor (required by Spring and MongoDB). */
@@ -67,12 +82,15 @@ public class Prescription {
     /**
      * Parameterized constructor for easier object creation.
      */
-    public Prescription(String patientName, Long appointmentId, String medication, String dosage, String doctorNotes) {
+    public Prescription(String patientName, Long appointmentId, String medication, 
+                        String dosage, String doctorNotes, int refillCount, String pharmacyName) {
         this.patientName = patientName;
         this.appointmentId = appointmentId;
         this.medication = medication;
         this.dosage = dosage;
         this.doctorNotes = doctorNotes;
+        this.refillCount = refillCount;
+        this.pharmacyName = pharmacyName;
     }
 
     // -------------------- Getters and Setters --------------------
@@ -123,5 +141,21 @@ public class Prescription {
 
     public void setDoctorNotes(String doctorNotes) {
         this.doctorNotes = doctorNotes;
+    }
+
+    public int getRefillCount() {
+        return refillCount;
+    }
+
+    public void setRefillCount(int refillCount) {
+        this.refillCount = refillCount;
+    }
+
+    public String getPharmacyName() {
+        return pharmacyName;
+    }
+
+    public void setPharmacyName(String pharmacyName) {
+        this.pharmacyName = pharmacyName;
     }
 }
