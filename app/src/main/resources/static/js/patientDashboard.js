@@ -1,136 +1,164 @@
+// --------------------------------------------
 // patientDashboard.js
-import { getDoctors } from './services/doctorServices.js';
-import { openModal } from './components/modals.js';
-import { createDoctorCard } from './components/doctorCard.js';
-import { filterDoctors } from './services/doctorServices.js';//call the same function to avoid duplication coz the functionality was same
-import { patientSignup, patientLogin } from './services/patientServices.js';
+// Handles doctor listing, filtering, and patient authentication
+// --------------------------------------------
 
+// Import required modules
+import { createDoctorCard } from "./components/doctorCard.js";
+import { openModal } from "./components/modals.js";
+import { getDoctors, filterDoctors } from "./services/doctorServices.js";
+import { patientLogin, patientSignup } from "./services/patientServices.js";
 
-
+// --------------------------------------------
+// Load Doctor Cards on Page Load
+// --------------------------------------------
 document.addEventListener("DOMContentLoaded", () => {
   loadDoctorCards();
+
+  // Bind modal triggers
+  const signupBtn = document.getElementById("patientSignup");
+  if (signupBtn) signupBtn.addEventListener("click", () => openModal("patientSignup"));
+
+  const loginBtn = document.getElementById("patientLogin");
+  if (loginBtn) loginBtn.addEventListener("click", () => openModal("patientLogin"));
+
+  // Bind search & filter logic
+  const searchBar = document.getElementById("searchBar");
+  const filterTime = document.getElementById("filterTime");
+  const filterSpecialty = document.getElementById("filterSpecialty");
+
+  if (searchBar) searchBar.addEventListener("input", filterDoctorsOnChange);
+  if (filterTime) filterTime.addEventListener("change", filterDoctorsOnChange);
+  if (filterSpecialty) filterSpecialty.addEventListener("change", filterDoctorsOnChange);
 });
 
-document.addEventListener("DOMContentLoaded", () => {
-  const btn = document.getElementById("patientSignup");
-  if (btn) {
-    btn.addEventListener("click", () => openModal("patientSignup"));
-  }
-});
+// --------------------------------------------
+// Function: Load All Doctors
+// --------------------------------------------
+async function loadDoctorCards() {
+  const contentDiv = document.getElementById("content");
+  contentDiv.innerHTML = "<p>Loading doctors...</p>";
 
-document.addEventListener("DOMContentLoaded", () => {
-  const loginBtn = document.getElementById("patientLogin")
-  if (loginBtn) {
-    loginBtn.addEventListener("click", () => {
-      openModal("patientLogin")
-    })
-  }
-})
+  try {
+    const doctors = await getDoctors();
 
-function loadDoctorCards() {
-  getDoctors()
-    .then(doctors => {
-      const contentDiv = document.getElementById("content");
-      contentDiv.innerHTML = "";
+    // Clear existing content
+    contentDiv.innerHTML = "";
 
-      doctors.forEach(doctor => {
-        const card = createDoctorCard(doctor);
-        contentDiv.appendChild(card);
-      });
-    })
-    .catch(error => {
-      console.error("Failed to load doctors:", error);
+    if (!doctors || doctors.length === 0) {
+      contentDiv.innerHTML = `<p>No doctors found at the moment.</p>`;
+      return;
+    }
+
+    // Render all doctor cards
+    doctors.forEach((doctor) => {
+      const card = createDoctorCard(doctor);
+      contentDiv.appendChild(card);
     });
-}
-// Filter Input
-document.getElementById("searchBar").addEventListener("input", filterDoctorsOnChange);
-document.getElementById("filterTime").addEventListener("change", filterDoctorsOnChange);
-document.getElementById("filterSpecialty").addEventListener("change", filterDoctorsOnChange);
-
-
-
-function filterDoctorsOnChange() {
-  const searchBar = document.getElementById("searchBar").value.trim();
-  const filterTime = document.getElementById("filterTime").value;
-  const filterSpecialty = document.getElementById("filterSpecialty").value;
-
-
-  const name = searchBar.length > 0 ? searchBar : null;
-  const time = filterTime.length > 0 ? filterTime : null;
-  const specialty = filterSpecialty.length > 0 ? filterSpecialty : null;
-
-  filterDoctors(name, time, specialty)
-    .then(response => {
-      const doctors = response.doctors;
-      const contentDiv = document.getElementById("content");
-      contentDiv.innerHTML = "";
-
-      if (doctors.length > 0) {
-        console.log(doctors);
-        doctors.forEach(doctor => {
-          const card = createDoctorCard(doctor);
-          contentDiv.appendChild(card);
-        });
-      } else {
-        contentDiv.innerHTML = "<p>No doctors found with the given filters.</p>";
-        console.log("Nothing");
-      }
-    })
-    .catch(error => {
-      console.error("Failed to filter doctors:", error);
-      alert("❌ An error occurred while filtering doctors.");
-    });
+  } catch (error) {
+    console.error("Error loading doctors:", error);
+    contentDiv.innerHTML = `<p class="text-danger">Failed to load doctors. Please try again later.</p>`;
+  }
 }
 
+// --------------------------------------------
+// Function: Search & Filter Doctors
+// --------------------------------------------
+async function filterDoctorsOnChange() {
+  const name = document.getElementById("searchBar")?.value.trim() || "";
+  const time = document.getElementById("filterTime")?.value || "";
+  const specialty = document.getElementById("filterSpecialty")?.value || "";
+  const contentDiv = document.getElementById("content");
+
+  contentDiv.innerHTML = "<p>Filtering doctors...</p>";
+
+  try {
+    const doctors = await filterDoctors(name, time, specialty);
+
+    // Clear content
+    contentDiv.innerHTML = "";
+
+    if (!doctors || doctors.length === 0) {
+      contentDiv.innerHTML = `<p>No doctors found with the given filters.</p>`;
+      return;
+    }
+
+    renderDoctorCards(doctors);
+  } catch (error) {
+    console.error("Error filtering doctors:", error);
+    contentDiv.innerHTML = `<p class="text-danger">Error fetching filtered doctors.</p>`;
+  }
+}
+
+// --------------------------------------------
+// Utility Function: Render Doctor Cards
+// --------------------------------------------
+function renderDoctorCards(doctors) {
+  const contentDiv = document.getElementById("content");
+  contentDiv.innerHTML = "";
+
+  doctors.forEach((doctor) => {
+    const card = createDoctorCard(doctor);
+    contentDiv.appendChild(card);
+  });
+}
+
+// --------------------------------------------
+// Function: Handle Patient Signup
+// --------------------------------------------
 window.signupPatient = async function () {
   try {
-    const name = document.getElementById("name").value;
-    const email = document.getElementById("email").value;
-    const password = document.getElementById("password").value;
-    const phone = document.getElementById("phone").value;
-    const address = document.getElementById("address").value;
+    const name = document.getElementById("signupName").value.trim();
+    const email = document.getElementById("signupEmail").value.trim();
+    const password = document.getElementById("signupPassword").value.trim();
+    const phone = document.getElementById("signupPhone").value.trim();
+    const address = document.getElementById("signupAddress").value.trim();
 
-    const data = { name, email, password, phone, address };
-    const { success, message } = await patientSignup(data);
-    if (success) {
-      alert(message);
-      document.getElementById("modal").style.display = "none";
-      window.location.reload();
+    if (!name || !email || !password) {
+      alert("Please fill in all required fields.");
+      return;
     }
-    else alert(message);
+
+    const response = await patientSignup({ name, email, password, phone, address });
+
+    if (response.success) {
+      alert(response.message || "Signup successful!");
+      document.getElementById("patientSignupModal")?.classList.remove("show");
+      loadDoctorCards(); // reload after signup
+    } else {
+      alert(response.message || "Signup failed. Please try again.");
+    }
   } catch (error) {
-    console.error("Signup failed:", error);
-    alert("❌ An error occurred while signing up.");
+    console.error("Signup error:", error);
+    alert("Something went wrong during signup.");
   }
 };
 
+// --------------------------------------------
+// Function: Handle Patient Login
+// --------------------------------------------
 window.loginPatient = async function () {
   try {
-    const email = document.getElementById("email").value;
-    const password = document.getElementById("password").value;
+    const email = document.getElementById("loginEmail").value.trim();
+    const password = document.getElementById("loginPassword").value.trim();
 
-    const data = {
-      email,
-      password
+    if (!email || !password) {
+      alert("Please enter both email and password.");
+      return;
     }
-    console.log("loginPatient :: ", data)
-    const response = await patientLogin(data);
-    console.log("Status Code:", response.status);
-    console.log("Response OK:", response.ok);
+
+    const response = await patientLogin({ email, password });
+
     if (response.ok) {
-      const result = await response.json();
-      console.log(result);
-      selectRole('loggedPatient');
-      localStorage.setItem('token', result.token)
-      window.location.href = '/pages/loggedPatientDashboard.html';
+      const data = await response.json();
+      localStorage.setItem("token", data.token);
+      alert("Login successful!");
+      window.location.href = "loggedPatientDashboard.html";
     } else {
-      alert('❌ Invalid credentials!');
+      alert("Invalid credentials. Please try again.");
     }
+  } catch (error) {
+    console.error("Login error:", error);
+    alert("Login failed. Please try again later.");
   }
-  catch (error) {
-    alert("❌ Failed to Login : ", error);
-    console.log("Error :: loginPatient :: ", error)
-  }
-
-
-}
+};
