@@ -1,92 +1,378 @@
 package com.project.back_end.services;
 
+import com.project.back_end.model.Appointment;
+import com.project.back_end.model.Doctor;
+import com.project.back_end.repo.AppointmentRepository;
+import com.project.back_end.repo.DoctorRepository;
+import com.project.back_end.repo.PatientRepository;
+import com.project.back_end.DTO.Login; // if needed for validateDoctor input
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+/**
+ * DoctorService
+ *
+ * Business logic for doctor management: save, update, delete, search and availability.
+ *
+ * Assumptions made:
+ * - Doctor has methods getId(), getEmail(), getName(), getSpecialty(), getAvailability()
+ *   where getAvailability() returns List<String> of time-slots (e.g. "09:00", "14:30") or similar.
+ * - Appointment has getAppointmentTime() (LocalDateTime) and getDoctorId().
+ * - TokenService has methods: generateToken(String identifier, String role) and extractEmail(String token).
+ *   If your TokenService API differs, adapt calls accordingly.
+ */
+@Service
 public class DoctorService {
 
-// 1. **Add @Service Annotation**:
-//    - This class should be annotated with `@Service` to indicate that it is a service layer class.
-//    - The `@Service` annotation marks this class as a Spring-managed bean for business logic.
-//    - Instruction: Add `@Service` above the class declaration.
+    private final DoctorRepository doctorRepository;
+    private final AppointmentRepository appointmentRepository;
+    private final PatientRepository patientRepository; // used in some flows (optional)
+    private final TokenService tokenService;
 
-// 2. **Constructor Injection for Dependencies**:
-//    - The `DoctorService` class depends on `DoctorRepository`, `AppointmentRepository`, and `TokenService`.
-//    - These dependencies should be injected via the constructor for proper dependency management.
-//    - Instruction: Ensure constructor injection is used for injecting dependencies into the service.
+    @Autowired
+    public DoctorService(DoctorRepository doctorRepository,
+                         AppointmentRepository appointmentRepository,
+                         PatientRepository patientRepository,
+                         TokenService tokenService) {
+        this.doctorRepository = doctorRepository;
+        this.appointmentRepository = appointmentRepository;
+        this.patientRepository = patientRepository;
+        this.tokenService = tokenService;
+    }
 
-// 3. **Add @Transactional Annotation for Methods that Modify or Fetch Database Data**:
-//    - Methods like `getDoctorAvailability`, `getDoctors`, `findDoctorByName`, `filterDoctorsBy*` should be annotated with `@Transactional`.
-//    - The `@Transactional` annotation ensures that database operations are consistent and wrapped in a single transaction.
-//    - Instruction: Add the `@Transactional` annotation above the methods that perform database operations or queries.
+    // ---------------------------
+    // Availability helpers
+    // ---------------------------
 
-// 4. **getDoctorAvailability Method**:
-//    - Retrieves the available time slots for a specific doctor on a particular date and filters out already booked slots.
-//    - The method fetches all appointments for the doctor on the given date and calculates the availability by comparing against booked slots.
-//    - Instruction: Ensure that the time slots are properly formatted and the available slots are correctly filtered.
+    /**
+     * Returns available time slots for a doctor on a date by removing booked slots.
+     *
+     * @param doctorId doctor id
+     * @param date     date for availability
+     * @return list of available time strings (same format as doctor's availability list)
+     */
+    @Transactional(readOnly = true)
+    public List<String> getDoctorAvailability(Long doctorId, LocalDate date) {
+        Optional<Doctor> dOpt = Optional.ofNullable(doctorRepository.findById(doctorId).orElse(null));
+        if (dOpt.isEmpty()) return Collections.emptyList();
+        Doctor doctor = dOpt.get();
 
-// 5. **saveDoctor Method**:
-//    - Used to save a new doctor record in the database after checking if a doctor with the same email already exists.
-//    - If a doctor with the same email is found, it returns `-1` to indicate conflict; `1` for success, and `0` for internal errors.
-//    - Instruction: Ensure that the method correctly handles conflicts and exceptions when saving a doctor.
+        // Assume doctor.getAvailability() returns List<String> like ["09:00","10:00","14:00", ...]
+        List<String> allSlots = Optional.ofNullable(doctor.getAvailability()).orElse(Collections.emptyList());
 
-// 6. **updateDoctor Method**:
-//    - Updates an existing doctor's details in the database. If the doctor doesn't exist, it returns `-1`.
-//    - Instruction: Make sure that the doctor exists before attempting to save the updated record and handle any errors properly.
+        LocalDateTime startOfDay = date.atStartOfDay();
+        LocalDateTime endOfDay = date.plusDays(1).atStartOfDay();
 
-// 7. **getDoctors Method**:
-//    - Fetches all doctors from the database. It is marked with `@Transactional` to ensure that the collection is properly loaded.
-//    - Instruction: Ensure that the collection is eagerly loaded, especially if dealing with lazy-loaded relationships (e.g., available times). 
+        List<Appointment> appointments = appointmentRepository
+                .findByDoctorIdAndAppointmentTimeBetween(doctorId, startOfDay, endOfDay);
 
-// 8. **deleteDoctor Method**:
-//    - Deletes a doctor from the system along with all appointments associated with that doctor.
-//    - It first checks if the doctor exists. If not, it returns `-1`; otherwise, it deletes the doctor and their appointments.
-//    - Instruction: Ensure the doctor and their appointments are deleted properly, with error handling for internal issues.
+        // Convert booked appointment times to "HH:mm" strings for comparison
+        Set<String> bookedSlots = appointments.stream()
+                .map(Appointment::getAppointmentTime)
+                .filter(Objects::nonNull)
+                .map(dt -> dt.toLocalTime().withSecond(0).withNano(0))
+                .map(LocalTime::toString) // "HH:mm:ss" or "HH:mm" depending on toString; normalize to HH:mm
+                .map(s -> {
+                    // normalization to HH:mm (strip seconds if present)
+                    if (s.length() > 5) return s.substring(0, 5);
+                    return s;
+                })
+                .collect(Collectors.toSet());
 
-// 9. **validateDoctor Method**:
-//    - Validates a doctor's login by checking if the email and password match an existing doctor record.
-//    - It generates a token for the doctor if the login is successful, otherwise returns an error message.
-//    - Instruction: Make sure to handle invalid login attempts and password mismatches properly with error responses.
+        List<String> available = allSlots.stream()
+                .filter(slot -> {
+                    // normalize slot to HH:mm
+                    String norm = slot.length() > 5 ? slot.substring(0, 5) : slot;
+                    return !bookedSlots.contains(norm);
+                })
+                .collect(Collectors.toList());
 
-// 10. **findDoctorByName Method**:
-//    - Finds doctors based on partial name matching and returns the list of doctors with their available times.
-//    - This method is annotated with `@Transactional` to ensure that the database query and data retrieval are properly managed within a transaction.
-//    - Instruction: Ensure that available times are eagerly loaded for the doctors.
+        return available;
+    }
 
+    // ---------------------------
+    // CRUD & management
+    // ---------------------------
 
-// 11. **filterDoctorsByNameSpecilityandTime Method**:
-//    - Filters doctors based on their name, specialty, and availability during a specific time (AM/PM).
-//    - The method fetches doctors matching the name and specialty criteria, then filters them based on their availability during the specified time period.
-//    - Instruction: Ensure proper filtering based on both the name and specialty as well as the specified time period.
+    /**
+     * Save a new doctor.
+     * @param doctor Doctor entity
+     * @return 1 on success, -1 if doctor already exists (by email), 0 on error
+     */
+    @Transactional
+    public int saveDoctor(Doctor doctor) {
+        try {
+            Doctor existing = doctorRepository.findByEmail(doctor.getEmail());
+            if (existing != null) {
+                return -1; // already exists
+            }
+            doctorRepository.save(doctor);
+            return 1;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return 0;
+        }
+    }
 
-// 12. **filterDoctorByTime Method**:
-//    - Filters a list of doctors based on whether their available times match the specified time period (AM/PM).
-//    - This method processes a list of doctors and their available times to return those that fit the time criteria.
-//    - Instruction: Ensure that the time filtering logic correctly handles both AM and PM time slots and edge cases.
+    /**
+     * Update an existing doctor.
+     * @param doctor Doctor with updates (must have id)
+     * @return 1 on success, -1 if not found, 0 on error
+     */
+    @Transactional
+    public int updateDoctor(Doctor doctor) {
+        try {
+            Optional<Doctor> opt = doctorRepository.findById(doctor.getId());
+            if (opt.isEmpty()) return -1;
+            Doctor exist = opt.get();
+            // Update fields - adjust according to your model
+            exist.setName(doctor.getName());
+            exist.setEmail(doctor.getEmail());
+            exist.setSpecialty(doctor.getSpecialty());
+            exist.setMobile(doctor.getMobile());
+            exist.setAvailability(doctor.getAvailability());
+            exist.setPassword(doctor.getPassword()); // if password updates allowed; or skip for safety
+            doctorRepository.save(exist);
+            return 1;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return 0;
+        }
+    }
 
+    /**
+     * Retrieve all doctors.
+     * @return list of doctors
+     */
+    @Transactional(readOnly = true)
+    public List<Doctor> getDoctors() {
+        return doctorRepository.findAll();
+    }
 
-// 13. **filterDoctorByNameAndTime Method**:
-//    - Filters doctors based on their name and the specified time period (AM/PM).
-//    - Fetches doctors based on partial name matching and filters the results to include only those available during the specified time period.
-//    - Instruction: Ensure that the method correctly filters doctors based on the given name and time of day (AM/PM).
+    /**
+     * Delete a doctor and associated appointments.
+     * @param id doctor id
+     * @return 1 success, -1 not found, 0 error
+     */
+    @Transactional
+    public int deleteDoctor(long id) {
+        try {
+            Optional<Doctor> opt = doctorRepository.findById(id);
+            if (opt.isEmpty()) return -1;
 
-// 14. **filterDoctorByNameAndSpecility Method**:
-//    - Filters doctors by name and specialty.
-//    - It ensures that the resulting list of doctors matches both the name (case-insensitive) and the specified specialty.
-//    - Instruction: Ensure that both name and specialty are considered when filtering doctors.
+            // remove appointments first
+            appointmentRepository.deleteAllByDoctorId(id);
+            doctorRepository.deleteById(id);
+            return 1;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return 0;
+        }
+    }
 
+    // ---------------------------
+    // Authentication
+    // ---------------------------
 
-// 15. **filterDoctorByTimeAndSpecility Method**:
-//    - Filters doctors based on their specialty and availability during a specific time period (AM/PM).
-//    - Fetches doctors based on the specified specialty and filters them based on their available time slots for AM/PM.
-//    - Instruction: Ensure the time filtering is accurately applied based on the given specialty and time period (AM/PM).
+    /**
+     * Validate doctor credentials and return token or error in ResponseEntity map.
+     *
+     * @param login Login DTO containing identifier (email) and password
+     * @return ResponseEntity with token in map on success or error message
+     */
+    @Transactional(readOnly = true)
+    public ResponseEntity<Map<String, String>> validateDoctor(com.project.back_end.DTO.Login login) {
+        Map<String, String> resp = new HashMap<>();
+        try {
+            // Using email as identifier for doctor
+            Doctor doctor = doctorRepository.findByEmail(login.getIdentifier());
+            if (doctor == null) {
+                resp.put("message", "Doctor not found");
+                return ResponseEntity.status(401).body(resp);
+            }
 
-// 16. **filterDoctorBySpecility Method**:
-//    - Filters doctors based on their specialty.
-//    - This method fetches all doctors matching the specified specialty and returns them.
-//    - Instruction: Make sure the filtering logic works for case-insensitive specialty matching.
+            // NOTE: replace this with a hashed password check if you store hashed passwords
+            if (!Objects.equals(doctor.getPassword(), login.getPassword())) {
+                resp.put("message", "Invalid credentials");
+                return ResponseEntity.status(401).body(resp);
+            }
 
-// 17. **filterDoctorsByTime Method**:
-//    - Filters all doctors based on their availability during a specific time period (AM/PM).
-//    - The method checks all doctors' available times and returns those available during the specified time period.
-//    - Instruction: Ensure proper filtering logic to handle AM/PM time periods.
+            // Generate token. Assumption: tokenService.generateToken(identifier, role) exists
+            String token = tokenService.generateToken(doctor.getEmail(), "doctor");
+            resp.put("token", token);
+            resp.put("message", "Login successful");
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            e.printStackTrace();
+            resp.put("message", "Internal error");
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
 
-   
+    // ---------------------------
+    // Search & filtering
+    // ---------------------------
+
+    /**
+     * Find doctors by partial name (using repository convenience).
+     * @param name search name
+     * @return map containing doctors list
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> findDoctorByName(String name) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<Doctor> doctors = doctorRepository.findByNameLike(name == null ? "" : name);
+            result.put("doctors", doctors);
+            return result;
+        } catch (Exception e) {
+            e.printStackTrace();
+            result.put("doctors", Collections.emptyList());
+            result.put("message", "Error searching doctors");
+            return result;
+        }
+    }
+
+    /**
+     * Combined filter: name + specialty + AM/PM availability
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> filterDoctorsByNameSpecilityandTime(String name, String specialty, String amOrPm) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<Doctor> candidates = doctorRepository
+                    .findByNameContainingIgnoreCaseAndSpecialtyIgnoreCase(
+                            name == null ? "" : name, specialty == null ? "" : specialty);
+
+            List<Doctor> filtered = filterDoctorByTime(candidates, amOrPm);
+            result.put("doctors", filtered);
+            return result;
+        } catch (Exception e) {
+            e.printStackTrace();
+            result.put("doctors", Collections.emptyList());
+            result.put("message", "Error filtering doctors");
+            return result;
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> filterDoctorByNameAndTime(String name, String amOrPm) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<Doctor> candidates = doctorRepository.findByNameLike(name == null ? "" : name);
+            List<Doctor> filtered = filterDoctorByTime(candidates, amOrPm);
+            result.put("doctors", filtered);
+            return result;
+        } catch (Exception e) {
+            e.printStackTrace();
+            result.put("doctors", Collections.emptyList());
+            result.put("message", "Error filtering by name and time");
+            return result;
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> filterDoctorByNameAndSpecility(String name, String specialty) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<Doctor> doctors = doctorRepository
+                    .findByNameContainingIgnoreCaseAndSpecialtyIgnoreCase(name == null ? "" : name, specialty == null ? "" : specialty);
+            result.put("doctors", doctors);
+            return result;
+        } catch (Exception e) {
+            e.printStackTrace();
+            result.put("doctors", Collections.emptyList());
+            result.put("message", "Error filtering by name and specialty");
+            return result;
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> filterDoctorByTimeAndSpecility(String specialty, String amOrPm) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<Doctor> candidates = doctorRepository.findBySpecialtyIgnoreCase(specialty == null ? "" : specialty);
+            List<Doctor> filtered = filterDoctorByTime(candidates, amOrPm);
+            result.put("doctors", filtered);
+            return result;
+        } catch (Exception e) {
+            e.printStackTrace();
+            result.put("doctors", Collections.emptyList());
+            result.put("message", "Error filtering by time and specialty");
+            return result;
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> filterDoctorBySpecility(String specialty) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<Doctor> doctors = doctorRepository.findBySpecialtyIgnoreCase(specialty == null ? "" : specialty);
+            result.put("doctors", doctors);
+            return result;
+        } catch (Exception e) {
+            e.printStackTrace();
+            result.put("doctors", Collections.emptyList());
+            result.put("message", "Error filtering by specialty");
+            return result;
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> filterDoctorsByTime(String amOrPm) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<Doctor> all = doctorRepository.findAll();
+            List<Doctor> filtered = filterDoctorByTime(all, amOrPm);
+            result.put("doctors", filtered);
+            return result;
+        } catch (Exception e) {
+            e.printStackTrace();
+            result.put("doctors", Collections.emptyList());
+            result.put("message", "Error filtering doctors by time");
+            return result;
+        }
+    }
+
+    /**
+     * Private helper: filters doctor's availability list for AM or PM.
+     * This inspects each doctor's availability slots (assumed List<String> like "09:00", "14:30")
+     * and retains doctors that have at least one slot in the requested period.
+     *
+     * @param doctors list of doctors to filter
+     * @param amOrPm  "AM" or "PM" (case-insensitive). If null/empty returns original list.
+     * @return filtered list
+     */
+    private List<Doctor> filterDoctorByTime(List<Doctor> doctors, String amOrPm) {
+        if (amOrPm == null || amOrPm.trim().isEmpty()) return doctors;
+
+        String mode = amOrPm.trim().toUpperCase(Locale.ROOT);
+        if (!mode.equals("AM") && !mode.equals("PM")) return doctors;
+
+        return doctors.stream()
+                .filter(doc -> {
+                    List<String> slots = Optional.ofNullable(doc.getAvailability()).orElse(Collections.emptyList());
+                    for (String slot : slots) {
+                        // normalize and parse time
+                        String s = slot.length() > 5 ? slot.substring(0, 5) : slot;
+                        try {
+                            LocalTime t = LocalTime.parse(s);
+                            if (mode.equals("AM") && t.getHour() < 12) return true;
+                            if (mode.equals("PM") && t.getHour() >= 12) return true;
+                        } catch (Exception ex) {
+                            // ignore parse errors and continue
+                        }
+                    }
+                    return false;
+                })
+                .collect(Collectors.toList());
+    }
 }
