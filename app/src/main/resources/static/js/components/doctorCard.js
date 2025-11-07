@@ -1,41 +1,181 @@
-/*
-Import the overlay function for booking appointments from loggedPatient.js
+// doctorCard.js - Reusable Doctor Card Component
 
-  Import the deleteDoctor API function to remove doctors (admin role) from docotrServices.js
+/**
+ * Creates a dynamic doctor card element
+ * @param {Object} doctor - Doctor object containing name, specialty, email, availability, etc.
+ * @returns {HTMLElement} - The complete doctor card element
+ */
+export function createDoctorCard(doctor) {
+    // Create the main card container
+    const card = document.createElement("div");
+    card.classList.add("doctor-card");
 
-  Import function to fetch patient details (used during booking) from patientServices.js
+    // Fetch the user's role from localStorage
+    const role = localStorage.getItem("userRole");
 
-  Function to create and return a DOM element for a single doctor card
-    Create the main container for the doctor card
-    Retrieve the current user role from localStorage
-    Create a div to hold doctor information
-    Create and set the doctor’s name
-    Create and set the doctor's specialization
-    Create and set the doctor's email
-    Create and list available appointment times
-    Append all info elements to the doctor info container
-    Create a container for card action buttons
-    === ADMIN ROLE ACTIONS ===
-      Create a delete button
-      Add click handler for delete button
-     Get the admin token from localStorage
-        Call API to delete the doctor
-        Show result and remove card if successful
-      Add delete button to actions container
-   
-    === PATIENT (NOT LOGGED-IN) ROLE ACTIONS ===
-      Create a book now button
-      Alert patient to log in before booking
-      Add button to actions container
-  
-    === LOGGED-IN PATIENT ROLE ACTIONS === 
-      Create a book now button
-      Handle booking logic for logged-in patient   
-        Redirect if token not available
-        Fetch patient data with token
-        Show booking overlay UI with doctor and patient info
-      Add button to actions container
-   
-  Append doctor info and action buttons to the car
-  Return the complete doctor card element
-*/
+    // Create doctor info section
+    const infoDiv = document.createElement("div");
+    infoDiv.classList.add("doctor-info");
+
+    // Create and add doctor name
+    const name = document.createElement("h3");
+    name.textContent = doctor.name;
+
+    // Create and add specialization
+    const specialization = document.createElement("p");
+    specialization.classList.add("specialty");
+    specialization.textContent = `Specialty: ${doctor.specialization || doctor.specialty || "General"}`;
+
+    // Create and add email
+    const email = document.createElement("p");
+    email.textContent = `Email: ${doctor.email}`;
+
+    // Create and add availability
+    const availability = document.createElement("p");
+    if (Array.isArray(doctor.availability)) {
+        availability.textContent = `Available: ${doctor.availability.join(", ")}`;
+    } else {
+        availability.textContent = `Available: ${doctor.availability || "Not specified"}`;
+    }
+
+    // Append all info elements to infoDiv
+    infoDiv.appendChild(name);
+    infoDiv.appendChild(specialization);
+    infoDiv.appendChild(email);
+    infoDiv.appendChild(availability);
+
+    // Create button container
+    const actionsDiv = document.createElement("div");
+    actionsDiv.classList.add("card-actions");
+
+    // Conditionally add buttons based on role
+    if (role === "admin") {
+        // Admin: Show Delete button
+        const removeBtn = document.createElement("button");
+        removeBtn.textContent = "Delete";
+        removeBtn.classList.add("delete-btn");
+
+        removeBtn.addEventListener("click", async () => {
+            // 1. Confirm deletion
+            const confirmed = confirm(`Are you sure you want to delete Dr. ${doctor.name}?`);
+            
+            if (!confirmed) return;
+
+            try {
+                // 2. Get token from localStorage
+                const token = localStorage.getItem("token");
+
+                if (!token) {
+                    alert("Authentication required. Please log in again.");
+                    window.location.href = "/";
+                    return;
+                }
+
+                // 3. Call API to delete doctor
+                // Import deleteDoctor from doctorServices.js
+                const { deleteDoctor } = await import("../services/doctorServices.js");
+                const success = await deleteDoctor(doctor.id, token);
+
+                // 4. On success: remove the card from the DOM
+                if (success) {
+                    card.remove();
+                    alert(`Dr. ${doctor.name} has been deleted successfully.`);
+                } else {
+                    alert("Failed to delete doctor. Please try again.");
+                }
+            } catch (error) {
+                console.error("Error deleting doctor:", error);
+                alert("An error occurred while deleting the doctor.");
+            }
+        });
+
+        actionsDiv.appendChild(removeBtn);
+
+    } else if (role === "patient") {
+        // Patient (not logged in): Show Book Now button but require login
+        const bookNow = document.createElement("button");
+        bookNow.textContent = "Book Now";
+        bookNow.classList.add("book-btn");
+
+        bookNow.addEventListener("click", () => {
+            alert("Patient needs to login first.");
+            // Optionally redirect to login or open login modal
+        });
+
+        actionsDiv.appendChild(bookNow);
+
+    } else if (role === "loggedPatient") {
+        // Logged-in Patient: Show Book Now button with full functionality
+        const bookNow = document.createElement("button");
+        bookNow.textContent = "Book Now";
+        bookNow.classList.add("book-btn");
+
+        bookNow.addEventListener("click", async (e) => {
+            try {
+                // Get token from localStorage
+                const token = localStorage.getItem("token");
+
+                if (!token) {
+                    alert("Session expired. Please log in again.");
+                    window.location.href = "/pages/patientDashboard.html";
+                    return;
+                }
+
+                // Fetch patient data
+                const { getPatientData } = await import("../services/patientServices.js");
+                const patientData = await getPatientData(token);
+
+                if (!patientData) {
+                    alert("Unable to fetch patient data. Please try again.");
+                    return;
+                }
+
+                // Show booking overlay/modal
+                const { showBookingOverlay } = await import("../components/modals.js");
+                showBookingOverlay(e, doctor, patientData);
+
+            } catch (error) {
+                console.error("Error during booking:", error);
+                alert("An error occurred while processing your booking request.");
+            }
+        });
+
+        actionsDiv.appendChild(bookNow);
+    }
+
+    // Final assembly - add all sections to the card
+    card.appendChild(infoDiv);
+    card.appendChild(actionsDiv);
+
+    // Return the complete card element
+    return card;
+}
+
+/**
+ * Helper function to render multiple doctor cards into a container
+ * @param {Array} doctors - Array of doctor objects
+ * @param {string} containerId - ID of the container element
+ */
+export function renderDoctorCards(doctors, containerId = "content") {
+    const container = document.getElementById(containerId);
+    
+    if (!container) {
+        console.error(`Container with id "${containerId}" not found`);
+        return;
+    }
+
+    // Clear existing content
+    container.innerHTML = "";
+
+    // Check if there are doctors to display
+    if (!doctors || doctors.length === 0) {
+        container.innerHTML = '<p class="no-doctors">No doctors available at the moment.</p>';
+        return;
+    }
+
+    // Create and append each doctor card
+    doctors.forEach(doctor => {
+        const card = createDoctorCard(doctor);
+        container.appendChild(card);
+    });
+}
